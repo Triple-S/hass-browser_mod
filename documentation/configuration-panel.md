@@ -1,39 +1,10 @@
 # The Browser Mod Configuration Panel
 
-## This browser
+[![Open your Home Assistant instance and show an integration.](https://my.home-assistant.io/badges/integration.svg)](https://my.home-assistant.io/redirect/integration/?domain=browser_mod)
 
-The most important concept for Browser Mod is the _Browser_. A _Browser_ is identified by a unique `BrowserID` stored in the browsers [LocalStorage](https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API).
+This panel is accessible by admins from the Browser Mod integration entry in Devices & services. Use the button above to go directly to the Browser Mod integration on your Home Assistant. From the integration entry, Use the settings cog to access the panel.
 
-Browser Mod will initially assigning a random `BrowserID` to each _Browser_ that connects, but you can change this if you want.
-
-LocalStorage works basically like cookies in that the information is stored locally on your device. Unlike a cookie, though, the information is bound to a URL. Therefore you may get different `BrowserID`s in the same browser if you e.g. access Home Assistant through different URLs inside and outside of your LAN, or through Home Assistant Cloud.
-
-### Register
-
-Registering a _Browser_ as a device will create a Home Assistant Device associated with that browser. The device has the following entities:
-
-- A `media_player` entity which will play sound and video through the browser. This entity has attributes `video_interaction_required` and `audio_interaction_required` which will be set to `true` if user interaction is required on the browser before being able to play video or audio. Generally user interaction is not required to play muted video. The `media_player` will be muted while ever user interaction is required for audio. For more information see [User interaction](#user-interaction).
-- A `light` entity will turn the screen on or off and control the brightness if you are using [Fully Kiosk Browser](https://www.fully-kiosk.com/) (FKB). If you are not using FKB the function will be simulated by covering the screen with a black (or semitransparent) box. There is a [Frontend Setting](#frontend-settings-admin-only) to optionally save the browser screen state for a browser.
-- A motion `binary_sensor` which reacts to mouse and/or keyboard activity in the Browser. In FKB this can also react to motion in front of the devices camera.
-- A number of `sensor` and `binary_sensor` entities providing different bits of information about the Browser which you may or may not find useful.
-
-> NOTE: Both the `media_player` and `light` functions can be disabled by disabling the entity in Home Assistant. If `media_player` is disabled no [User interaction](#user-interaction) check will take place. If `light` is disabled, there will be no setting of screen brightness from Home Assistant, which is useful if you are using adaptive light brightness on your device and never want Browser Mod to override.
-
-Registering a browser also enables it to act as a target for Browser Mod _services_.
-
-### Browser ID
-
-This box lets you set the `BrowserID` for the current _Browser_.
-Note that it is possible to assign the same `BrowserID` to several browsers, but unpredictable things _may_ happen if several of them are open at the same time.
-There may be benefits to using the same `BrowserID` in some cases, so you'll have to experiment with what works for you.
-
-Browser Mod is trying hard to keep the Browser ID constant. If you have an environment where you are finding your Browser IDs change from time to time, consider following the best practice for [Browser ID updates](#browser-id-updates).
-
-### Enable camera
-
-If your device has a camera, this will allow it to be forwarded as a `camera` entity to Home Assistant.
-
-## Registered Browsers (admin only)
+## Registered Browsers
 
 This section shows all currently registered _Browsers_ and allows you to unregister them. This is useful e.g. if a `BrowserID` has changed or if you do not have access to a device anymore.
 
@@ -43,7 +14,7 @@ You can also lock browsers so they cannot be unregistered by a non-admin user.
 
 If you are using [Home Assistant Cast](https://www.home-assistant.io/integrations/cast/#home-assistant-cast) to display a lovelace view on a Chromecast device it will get a BrowserID of "`CAST`". Since you can't access the Browser Mod config panel from the device, clicking this button will register the `CAST` browser. Most Browser Mod services will work under Home Assistant Cast.
 
-## Frontend Settings (admin only)
+## Frontend Settings
 
 This section is for settings that change the default behavior of the Home Assistant frontend.
 
@@ -137,17 +108,20 @@ See [Default action](#default-action) below for tips on calling multiple actions
 
 __IMPORTANT__: Like actions popups and notifications, this setting DOES NOT support templates.
 
-### Default dashboard (legacy)
+### Default dashboard
 
-**Using this Frontend setting is not recommended. See below for options which are recommended.**
+Set the default dashboard that is shown when you access Home Assistant base URL (e.g. https://homeassistant.local/)
 
-1. Global/System ⇒ (Since 2025.12) Set the Home Assistant default system dashboard in Dashboards.
-2. Browser/Device ⇒ Use Default action with `browser_mod.navigate`. This also works with other pages than lovelace dashboards, like e.g. `logbook` or even `history?device_id=f112fd806f2520c76318406f98cd244e&start_date=2022-09-02T16%3A00%3A00.000Z&end_date=2022-09-02T19%3A00%3A00.000Z`.
-3. User ⇒ (Since 2025.12) Set Home Assistant default user dashboard in user profile.
+Browser Mod supports three levels of default dashboard and applies them in the following priority order (highest first):
 
-Set the default dashboard that is shown when you access `https://<your home assistant url>/` with nothing after the `/`.
+| Level | Scope | Overrides |
+|-------|-------|-----------|
+| **User** | Any browser, this user | Browser-level and global Browser Mod settings, and native Home Assistant defaults |
+| **Browser** | This registered browser, any user | Global Browser Mod setting and native Home Assistant defaults |
+| **Global** | All browsers, all users | Native Home Assistant defaults |
 
-> NOTE: This uses legacy method of storing default dashboard in localStorage. Home Assistant 2025.12 started storing the default dashboard in system/user settings. If the default dashboard is set via Home Assistant at either system or user level, this overrides the legacy method and Browser Mod setting will be ignored.
+> NOTE: Browser-level default dashboard override requires **Sync Browser ID to login session** to be enabled. Global and User-level overrides work without sync session.
+> When a Browser Mod default dashboard is active for a browser or user, the **Default Dashboard** row in the Home Assistant user profile is replaced with a notice that Browser Mod is managing the default dashboard. To restore the native picker, clear the relevant Browser Mod setting.
 
 ### Default action
 
@@ -216,15 +190,20 @@ This hides the icon in the bottom right corner which indicates that you need to 
 
 This allows for a Full [user interaction](#user-interaction) check if required.
 
+### Force full user interaction
+
+The Force full [user interaction](#user-interaction) setting forces user interaction to always be Full user interaction, bypassing the minimal icon user interaction.
+
 ### Save screen state
 
 This saves the screen state on browser disconnect and restores on browser reconnect. The screen state (on/off) and brightness are both saved. The state will be saved and restored for all browsers that have this setting applied, including those running Fully Kiosk.
 
 ### Camera resolution
 
-Set the desired resolution for the camera in pixels using the format `width x height` (e.g., `1920 x 1080`). This [Frontend setting](#frontend-settings-admin-only) allows you to control the quality and bandwidth usage of the camera stream. If not set, the browser will use its default resolution (typically 640 x 480).
+Set the desired resolution for the camera in pixels using the format `width x height` (e.g., `1920 x 1080`). This [Frontend setting](#frontend-settings) allows you to control the quality and bandwidth usage of the camera stream. If not set, the browser will use its default resolution (typically 640 x 480).
 
 Common resolutions:
+
 - `640 x 480` - VGA (default if not specified)
 - `1280 x 720` - HD (720p)
 - `1920 x 1080` - Full HD (1080p)
@@ -233,11 +212,21 @@ Common resolutions:
 
 > Note: The actual resolution used may depend on your camera's capabilities. The browser will try to use the closest available resolution to what you specify.
 
+### go2rtc base URL
+
+Set a go2rtc base URL to publish the Browser camera as a WHIP stream. Browser Mod will publish to `/api/webrtc?dst=<BrowserID>` under this base URL. For example, if the base URL is `https://go2rtc.example.local`, the Browser with ID `kitchen` publishes to `https://go2rtc.example.local/api/webrtc?dst=kitchen`.
+
+See [go2rtc publishing](./go2rtc.md) for go2rtc setup, HTTPS, CORS, and troubleshooting notes.
+
 ---
 
 #### Browser ID updates
 
-While Browser Mod does its best to retain a Browser ID for browsers, it may change due to circumstances beyond Browser Mod's control (e.g. localStorage cleared due to Browser privacy settings). When a Browser ID changes, your Frontend settings tied to a Browser ID will not be applied. To be able to restore Browser ID and Frontend settings tied to the Browser ID you can follow the best practices listed below.
+While Browser Mod does its best to retain a Browser ID for browsers, it may change due to circumstances beyond Browser Mod's control (e.g. localStorage cleared due to Browser privacy settings). When a Browser ID changes, your Frontend settings tied to a Browser ID will not be applied.
+
+The easiest way to handle this is to enable [Sync Browser ID to login session](./browser-panel.md#sync-browser-id-to-login-session), which automatically recalls the Browser ID from the server whenever local storage is cleared, as long as the same login session is used.
+
+If you prefer a manual approach or cannot use session sync, you can follow the best practices listed below.
 
 1. Turn off auto-register. This allows to control the register order, and also limits many new Browser IDs being registered in your environment of changing Browser IDs.
 2. Don't lock the register but leave open to make the next step easy to accomplish.
@@ -256,11 +245,15 @@ Due to Browser restrictions users may need to interact with a Browser after refr
 
 ![Tablet device showing interaction is required](https://github.com/user-attachments/assets/b98935b3-86e3-44bf-b745-4e0c4b6ad459)
 
-When the user interaction icon is showing, a click/touch anywhere on the screen will cause Browser Mod to again check if video/audio can be played automatically. If successful, no further action is required. For some Browsers, user interaction is required __directly__ on an interactive element. If this is the case, a Frontend option is available to set [Full user interaction](#full-user-interaction) if required. When this Frontend setting is set for a Browser, and the need for Full user interaction is detected, users will see a full interaction screen like that shown below. To facilitate successful user interaction, click the play button shown on the media controls. If successful, a short 'pop' sound will be heard and the full interaction screen will be dismissed. If nothing happens it means there are further interaction issues and users will need to use the dismiss 'X' button to continue.
+When the user interaction icon is showing, a click/touch anywhere on the screen will cause Browser Mod to again check if video/audio can be played automatically. If successful, no further action is required. For some Browsers, user interaction is required __directly__ on an interactive element. If this is the case, a Frontend option is available to set [Full user interaction](#full-user-interaction) if user interaction is required. When this Frontend setting is set for a Browser, and the need for user interaction is detected, users will see a full interaction screen like that shown below. To facilitate successful Full user interaction, click the play button shown on the media controls. If successful, a short 'pop' sound will be heard and the Full interaction screen will be dismissed. If nothing happens it means there are further interaction issues and users will need to use the dismiss 'X' button to continue.
+
+In some cases the icon-based minimal user interaction passes but playing unmuted video/audio automatically still fails. In this case you can try to set the [Force full user interaction](#force-full-user-interaction) setting for the Browser. This will bypass the minimal icon user interaction and use the Full user interaction directly on Browser load.
 
 ![Tablet device showing full interaction](https://github.com/user-attachments/assets/a1ce01af-091e-4618-bd8e-c50ebd05f9cf)
 
 To allow for Full user interaction for a Browser, use the [Full user interaction](#full-user-interaction) Frontend setting.
+
+To force Full user interaction for a Browser, use the Force full user interaction Frontend setting.
 
 To not have any user interaction, the user interaction icon may be hidden using a [Frontend user setting](#hide-interaction-icon). This does not remove the need for interaction. You can always check the need for interaction through the `video_interaction_required` and `audio_interaction_required` attributes of the `media_player` entity for the Browser.
 

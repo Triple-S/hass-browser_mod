@@ -1,4 +1,4 @@
-# browser_mod 2
+# browser_mod
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
 
@@ -138,9 +138,9 @@ In short, things are hopefully much easier now for new users of Browser Mod at t
 
 ### **Why does my Browser ID keep changing?**
 
-There's just no way around this. I've used every trick in the book and invented a handful of new ones in order to save the Browser ID as far as possible. It should be much better in Browser Mod 2.0 than earlier, but it's still not perfect. At least it's easy to change it back now...
+Since Version 2.13.0 Browser ID can be synchronized to the logged in session. As long as you stay logged in on the device the Browser ID will not change. Use this feature by setting Sync session selection on in the Browser Mod panel for the device.
 
-Note that you can also set the browser ID to e.g. `whatever` by adding `?BrowserID=whatever` (N.B. capital B) to any Home Assistant URL.
+For special cases you can also set the browser ID to e.g. `whatever` by adding `?BrowserID=whatever` (N.B. capital B) to any Home Assistant URL.
 
 ### **How do I update a popup from the Browser mod 1.5?**
 
@@ -173,3 +173,23 @@ Besides removing the integration as usual, there is one extra step needed.
 In order to work well with [Home Assistant Cast](https://www.home-assistant.io/integrations/cast/#home-assistant-cast) Browser Mod will add itself to your Dashboard Resources, and you will need to remove it from there manually:
 
 [![Open your Home Assistant instance and show your dashboard resources.](https://my.home-assistant.io/badges/lovelace_resources.svg)](https://my.home-assistant.io/redirect/lovelace_resources/)
+
+### **How do I clean up after removing the default-dashboard plugin?**
+
+After removing the default-dashboard plugin (which conflicts with Browser Mod default dashboard operation), you may need to remove the browser `localStorage` key `isDefaultPanelManaged`. Browser Mod uses this key to detect that the plugin is/was managing the default panel, and it may remain after uninstall—causing the Home Assistant repair warning to persist until it is cleared.
+
+[![Open your Home Assistant instance and show your service developer tools with a specific action selected.](https://my.home-assistant.io/badges/developer_call_service.svg)](https://my.home-assistant.io/redirect/developer_call_service/?service=browser_mod.refresh)
+
+You can remove the `isDefaultPanelManaged` item from the `localStorage` of all registered and online Browsers by using the [`browser_mod.refresh`](/documentation/services.md#browser_modrefresh) service with `local_storage_items` set to include `- item: isDefaultPanelManaged`. Either use Home Assistant (Developer) tools, Actions tab and search for `browser_mod.refresh`, adding `isDefaultPanelManaged` as an `item` entry under `local_storage_items`, or create a dashboard button with action as per the example below. You can use the button above to go directly to (Developer) tools with `browser_mod.refresh` selected.
+
+```yaml
+type: button
+name: Cleanup default-dashboard plugin settings
+tap_action:
+  action: perform-action
+  perform_action: browser_mod.refresh
+  target: {}
+  data:
+    local_storage_items:
+      - item: isDefaultPanelManaged
+```

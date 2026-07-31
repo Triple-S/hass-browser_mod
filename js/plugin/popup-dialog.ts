@@ -7,6 +7,7 @@ import {
   ensureArray,
   provideHass,
   selectTree,
+  BROWSER_MOD_CLOSE_ANCHOR,
 } from "../helpers";
 import { loadHaForm } from "../helpers";
 import { ObjectSelectorMonitor } from "../object-selector-monitor";
@@ -41,7 +42,6 @@ export class BrowserModPopup extends LitElement {
   @property() _formDataValid;
   @property({type: Array}) _styleAttributes: boolean [];
   @query("ha-dialog,ha-adaptive-dialog", false) dialog: any;
-  @query("ha-dialog-footer") footer: any;
   _autoclose;
   _autocloseListener;
   _actions;
@@ -57,6 +57,7 @@ export class BrowserModPopup extends LitElement {
   _initialStyle: string;
   _styleSequence: string[];
   _styleSequenceIndex: number;
+  _expectingCloseEvent: boolean;
 
   connectedCallback() {
     super.connectedCallback();
@@ -64,12 +65,6 @@ export class BrowserModPopup extends LitElement {
       this,
       (value: boolean) => { this._formDataValid = value }
     );
-    // When reopening popup, keep style attributes
-    // but make sure they are all set to false
-    this._styleAttributes = this._styleAttributes || [];
-    Object.keys(this._styleAttributes).forEach((key) => {
-      this._styleAttributes[key] = false;
-    });
   }
 
   updated(_changedProperties: PropertyValues): void {
@@ -83,12 +78,6 @@ export class BrowserModPopup extends LitElement {
         }
       });
     }
-    if (this.left_button !== undefined && this.footer) {
-      const footerEl = this.footer.shadowRoot?.querySelector("footer");
-      if (footerEl?.style.getPropertyValue("justify-content") !== "space-between"){
-        footerEl?.style.setProperty("justify-content", "space-between");
-      }
-    }
   }
 
   public async showDialog(args: BrowserModPopupParams): Promise<void> {
@@ -100,13 +89,21 @@ export class BrowserModPopup extends LitElement {
     this.openDialog();
   }
 
-  async closeDialog() {
+  async closeDialog(event?: CustomEvent) {
+    // Logic to not Close twice when we close ourself and the event is coming from the dialog close event
+    if (!event) {
+      this._expectingCloseEvent = true;
+    } if (event && this._expectingCloseEvent) {
+      this._expectingCloseEvent = false;
+      return true;
+    }
     if (!this.open) return true;
     this.open = false;
     this._objectSelectorMonitor.stopMonitoring();
     this.card?.remove?.();
     this.card = undefined;
     clearInterval(this._timeoutTimer);
+    this.style.removeProperty("--progress");
     if (this._autocloseListener) {
       window.browser_mod.removeEventListener(
         "browser-mod-activity",
@@ -135,12 +132,33 @@ export class BrowserModPopup extends LitElement {
 
   openDialog() {
     this.open = true;
-    if (this.adaptive && this.adaptive_force_bottom_sheet) {
-      this.updateComplete.then(() => {
+    this._expectingCloseEvent = false;
+    this.updateComplete.then(async () => {
+      if (this.adaptive && this.adaptive_force_bottom_sheet) {
         this.dialog._mode = "bottom-sheet";
         this.dialog._modeSet = true;
-      });
-    }
+        if (this.timeout && !this.timeout_hide_progress) {
+          await this.dialog?.updateComplete;
+          const bottomSheet = this.dialog?.shadowRoot?.querySelector("ha-bottom-sheet");
+          this._injectProgressToBottomSheet(bottomSheet as HTMLElement);
+        }
+      } else if (this.timeout && !this.timeout_hide_progress) {
+        if (this.adaptive) {
+          await this.dialog?.updateComplete;
+          const bottomSheet = this.dialog?.shadowRoot?.querySelector("ha-bottom-sheet");
+          if (bottomSheet) {
+            this._injectProgressToBottomSheet(bottomSheet as HTMLElement);
+          } else {
+            const innerDialog = this.dialog?.shadowRoot?.querySelector("ha-dialog") as any;
+            if (innerDialog?.updateComplete) await innerDialog.updateComplete;
+            this._injectProgressToDialogHeader(innerDialog?.shadowRoot?.querySelector("ha-dialog-header"));
+          }
+        } else {
+          await this.dialog?.updateComplete;
+          this._injectProgressToDialogHeader(this.dialog?.shadowRoot?.querySelector("ha-dialog-header"));
+        }
+      }
+    });
     if (this.timeout) {
       this._timeoutStart = new Date().getTime();
       this._timeoutTimer = setInterval(() => {
@@ -183,8 +201,8 @@ export class BrowserModPopup extends LitElement {
         this,
         this.tag ? `browser-mod-popup-${this.tag}` : "more-info",
         (this.uix?.style ?? this.card_mod?.style) ?
-          { style: this.uix?.style ?? this.card_mod.style, debug: this.uix?.debug ?? this.card_mod?.debug ?? false } :
-          { style: {}, debug: this.uix?.debug ?? this.card_mod?.debug ?? false },
+          { style: this.uix?.style ?? this.card_mod.style, debug: this.uix?.debug ?? this.card_mod?.debug ?? false, theme: this.uix?.theme ?? this.card_mod?.theme ?? undefined } :
+          { style: {}, debug: this.uix?.debug ?? this.card_mod?.debug ?? false, theme: this.uix?.theme ?? this.card_mod?.theme ?? undefined },
         {},
         true,
         "browser_mod-uix"
@@ -223,6 +241,7 @@ export class BrowserModPopup extends LitElement {
       // Only remove style attributes after close to not force an update during closing animation
       Object.keys(this._styleAttributes).forEach((key) => {
         key.split(" ").forEach((k) => this.removeAttribute(k));
+        this._styleAttributes[key] = false;
       });
       this._styleSequenceIndex = undefined;
       // Workaround for bottom-sheet mode getting stuck
@@ -240,6 +259,7 @@ export class BrowserModPopup extends LitElement {
   _updateStyleAttributes(newStyle) {
     if (newStyle == "initial") newStyle = this._initialStyle;
     // Clear previous style attributes
+    this._styleAttributes = this._styleAttributes || [];
     Object.keys(this._styleAttributes).forEach((key) => {
       this._styleAttributes[key] = false;
     });
@@ -437,7 +457,7 @@ export class BrowserModPopup extends LitElement {
   async do_close() {
     const action = this._actions?.dismiss_action;
     if (this._actions?.dismiss_action) this._actions.dismiss_action = undefined;
-    await this.closeDialog();
+    await window.browser_mod.closePopup({tag: this.tag ?? ""});
     action?.(this._formdata);
     this._objectSelectorMonitor.stopMonitoring();
   }
@@ -463,12 +483,53 @@ export class BrowserModPopup extends LitElement {
     await this.icons?.[index]?.action?.();
   }
 
+  _injectProgressToDialogHeader(headerEl: Element | null) {
+    if (!headerEl?.shadowRoot) return;
+    if (headerEl.shadowRoot.querySelector(".browser-mod-progress-style")) return;
+    const style = document.createElement("style");
+    style.classList.add("browser-mod-progress-style");
+    style.textContent = `
+      :host {
+        position: relative;
+        overflow: hidden;
+      }
+      :host::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 3px;
+        width: calc(100% - var(--progress, 0%));
+        background: var(--primary-color);
+        z-index: 10;
+        pointer-events: none;
+      }
+    `;
+    headerEl.shadowRoot.prepend(style);
+  }
+
+  _injectProgressToBottomSheet(bottomSheetEl: HTMLElement | null) {
+    if (!bottomSheetEl) return;
+    if (bottomSheetEl.querySelector(".browser-mod-progress-bar")) return;
+    const progressEl = document.createElement("div");
+    progressEl.classList.add("browser-mod-progress-bar");
+    progressEl.setAttribute("slot", "header");
+    progressEl.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 3px;
+      width: calc(100% - var(--progress, 0%));
+      background: var(--primary-color);
+      z-index: 10;
+      pointer-events: none;
+    `;
+    bottomSheetEl.prepend(progressEl);
+  }
+
   render() {
     if (!this.open) return html``;
     const innerContent = html`
-      ${this.timeout && !this.timeout_hide_progress
-        ? html` <div slot="headerTitle" class="progress"></div> `
-        : ""}
       ${this.title
         ? html`
           ${this.dismissable
@@ -482,7 +543,7 @@ export class BrowserModPopup extends LitElement {
                   </ha-icon>
                 </ha-icon-button>
               `
-            : ""}
+            : html`<div slot="headerNavigationIcon"></div>`}
           <span 
             slot="headerTitle" 
             @click=${() => { this._cycleStyleAttributes() }} 
@@ -507,17 +568,16 @@ export class BrowserModPopup extends LitElement {
             : "" }
           `
         : html``}
-
+      <div data-close-anchor="${BROWSER_MOD_CLOSE_ANCHOR}" class="${BROWSER_MOD_CLOSE_ANCHOR}" data-dialog="close"></div>
       <div class="content" tabindex="-1" dialogInitialFocus>
         <div class="container">${this.content}</div>
       </div>
       ${this.left_button !== undefined || this.right_button !== undefined ?
         html`
-        <ha-dialog-footer slot="footer">
+        <footer slot="footer">
           ${this.left_button !== undefined
             ? html`
                 <ha-button
-                  slot="secondaryAction"
                   variant=${this.left_button_variant}
                   appearance=${this.left_button_appearance}
                   @click=${this._secondary}
@@ -528,7 +588,6 @@ export class BrowserModPopup extends LitElement {
           ${this.right_button !== undefined
             ? html`
                 <ha-button
-                  slot="primaryAction"
                   variant=${this.right_button_variant}
                   appearance=${this.right_button_appearance}
                   @click=${this._primary}
@@ -537,18 +596,17 @@ export class BrowserModPopup extends LitElement {
                 >${this.right_button}</ha-button>
               `
             : ""}
-          </ha-dialog-footer>` : "" }
+          </footer>` : "" }
       <style>
         ${this.getDynamicStyles()}
       </style>
     `;
-    // Type is set to "" so we don't get "standard" dialog CSS
     if (this.adaptive) {
       return html`
         <ha-adaptive-dialog
           .hass=${this.hass}
           .open=${this.open}
-          @closed=${this.closeDialog}
+          @closed=${(ev: CustomEvent) => this.closeDialog(ev)}
           ?prevent-scrim-close=${!this.dismissable}
           ?without-header=${!this.title}
           ?allow-mode-change=${this.adaptive_allow_mode_change}
@@ -558,12 +616,13 @@ export class BrowserModPopup extends LitElement {
         </ha-adaptive-dialog>
       `;
     }
+    // Type is set to "" so we don't get "standard" dialog CSS except for classic
     return html`
       <ha-dialog
         .hass=${this.hass}
         .open=${this.open}
         type=${this._styleAttributes["classic"] ? "" : "standard"}
-        @closed=${this.closeDialog}
+        @closed=${(ev: CustomEvent) => this.closeDialog(ev)}
         ?prevent-scrim-close=${!this.dismissable}
         ?without-header=${!this.title}
         flexContent
@@ -618,6 +677,12 @@ export class BrowserModPopup extends LitElement {
         --ha-bottom-sheet-max-width: var(--popup-max-width, 600px);
       }
 
+      .browser-mod-close-anchor {
+        width: 0;
+        height: 0;
+        display: none;
+        visibility: hidden;
+      }
       .content {
         -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
         -webkit-focus-ring-color: rgba(0, 0, 0, 0);
@@ -631,20 +696,6 @@ export class BrowserModPopup extends LitElement {
       }
       :host([card]) .content .container {
         padding: 8px 8px 20px 8px;
-      }
-      .progress {
-        position: relative;
-      }
-
-      .progress::before {
-        content: "";
-        position: absolute;
-        left: 0;
-        width: calc(100% - var(--progress, 60%));
-        top: 0;
-        height: 5px;
-        background: var(--primary-color);
-        z-index: 10;
       }
       .title {
         display: flex;
@@ -663,6 +714,14 @@ export class BrowserModPopup extends LitElement {
         overflow: hidden;
         text-overflow: ellipsis;
         cursor: default;
+      }
+
+      footer {
+        display: flex;
+        gap: var(--ha-space-3);
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
       }
 
       :host([wide]) ha-dialog, :host([wide]) ha-adaptive-dialog {

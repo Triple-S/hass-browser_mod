@@ -6,6 +6,11 @@ import { babel } from "@rollup/plugin-babel";
 
 const dev = process.env.ROLLUP_WATCH;
 
+const tsPluginOptions = {
+  include: ["**/*.ts", "**/*.tsx"],
+  exclude: ["**/*.d.ts"],
+};
+
 export default [
   {
     input: "js/plugin/main.ts",
@@ -16,7 +21,21 @@ export default [
     plugins: [
       nodeResolve(),
       json(),
-      typescript(),
+      typescript(tsPluginOptions),
+      babel({ babelHelpers: 'bundled', exclude: "node_modules/**" }),
+      !dev && terser({ format: { comments: false } }),
+    ],
+  },
+  {
+    input: "js/browser_panel/main.ts",
+    output: {
+      file: "custom_components/browser_mod/browser_mod_browser_panel.js",
+      format: "es",
+    },
+    plugins: [
+      nodeResolve(),
+      json(),
+      typescript(tsPluginOptions),
       babel({ babelHelpers: 'bundled', exclude: "node_modules/**" }),
       !dev && terser({ format: { comments: false } }),
     ],
@@ -24,13 +43,13 @@ export default [
   {
     input: "js/config_panel/main.ts",
     output: {
-      file: "custom_components/browser_mod/browser_mod_panel.js",
+      file: "custom_components/browser_mod/browser_mod_config_panel.js",
       format: "es",
     },
     plugins: [
       nodeResolve(),
       json(),
-      typescript(),
+      typescript(tsPluginOptions),
       babel({ babelHelpers: 'bundled', exclude: "node_modules/**" }),
       !dev && terser({ format: { comments: false } }),
     ],

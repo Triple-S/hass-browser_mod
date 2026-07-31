@@ -129,14 +129,19 @@ data:
 
 ## `browser_mod.refresh`
 
-Reload the current page.
+Refresh page clearing Frontend cache with optional clearing of Browser `localStorage` items.
 
 ```yaml
 service: browser_mod.refresh
 data:
   [browser_id: <Browser IDs>]
   [user_id: <User IDs>]
+  [local_storage_items: - item: <localStorage key>]
 ```
+
+| | |
+|---|---|
+|`local_storage_items`| List of Browser `localStorage` item keys to clear before refreshing page.|
 
 ## `browser_mod.change_browser_id`
 
@@ -196,7 +201,7 @@ data:
 | | |
 |---|---|
 |`entity`| The entity whose more-info dialog to display. |
-|`view`| The more-info view to open. The view opened will always have a close icon. Setting the view to anything other than `info` will always ignore custom popup-cards. |
+|`view`| The more-info view to open. Setting the view to anything other than `info` will always ignore custom popup-cards. |
 |`large`| If true, the dialog will be displayed wider, as if you had clicked the title of the dialog. |
 |`ignore_popup_card` | If true the more-info dialog will be shown even if there's currently a popup-card in the view/dashboard(*) which would override it. |
 |`close` | If true the more-into dialog will be closed if open. All other parameters are ignored. |

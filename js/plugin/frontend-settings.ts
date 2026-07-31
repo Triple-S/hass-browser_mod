@@ -44,10 +44,19 @@ export const AutoSettingsMixin = (SuperClass) => {
     constructor() {
       super();
 
+      // When navigating we need to wait for the new page to load before running updates hence the setTimeout.  
+      // location-changed is fired on navigate but before the new page is loaded, 
+      // and popstate is fired on back/forward navigation but also before the new page is loaded.
+      const runUpdatesOnNavigate = () => {
+        setTimeout(() => {
+          runUpdates();
+        }, 0);
+      }
+
       const runUpdates = async () => {
-        this.runUpdateTitle();
-        this.runHideHeader();
-        this.updateOverlayIcon();
+          this.runUpdateTitle();
+          this.runHideHeader();
+          this.updateOverlayIcon();
       };
 
       const searchParams = new URLSearchParams(window.location.search);
@@ -75,8 +84,8 @@ export const AutoSettingsMixin = (SuperClass) => {
         runUpdates();
       });
 
-      window.addEventListener("location-changed", runUpdates);
-      window.addEventListener("popstate", runUpdates);
+      window.addEventListener("location-changed", runUpdatesOnNavigate);
+      window.addEventListener("popstate", runUpdatesOnNavigate);
 
       this.addEventListener("browser-mod-user-ready", () => {
           this.entitiesReady().then(() => {
@@ -88,6 +97,7 @@ export const AutoSettingsMixin = (SuperClass) => {
         {once: true}
       );
       this._watchEditSidebar();
+      this._watchProfileDashboardRow();
     }
 
     async _auto_settings_setup() {
@@ -113,8 +123,32 @@ export const AutoSettingsMixin = (SuperClass) => {
       this.updateSidebarPanelsDebounced();
 
       // Default panel
-      if (settings.defaultPanel) {
-        localStorage.setItem("defaultPanel", `"${settings.defaultPanel}"`);
+      // Keep localStorage defaultPanel in sync with Browser Mod setting.
+      // This provides fallback when server-side injection does not resolve, and
+      // removes Browser Mod override when defaultPanel is unset.
+      const defaultPanel = this.settings.defaultPanel;
+
+      // isDefaultPanelManaged is set by default-dashboard plugin to indicate that it is managing the default panel.
+      // If default-dashboard plugin is installed setting here will cause default-panel to reset and reload
+      // This causes an endless reload loop so only set defaultPanel if default-dashboard plugin is not installed
+      // otherwise raise repair issue in Home Assistant so user can decide what to do about it.
+      if (localStorage.getItem("isDefaultPanelManaged") !== "true") {
+        if (defaultPanel) {
+          localStorage.setItem("defaultPanel", `"${defaultPanel}"`);
+        } else {
+          localStorage.removeItem("defaultPanel");
+        }
+        this.connection.sendMessage({
+          type: "browser_mod/delete_issue",
+          issue_id: "default_dashboard_plugin_conflict",
+        });
+      } else {
+        this.connection.sendMessage({
+          type: "browser_mod/create_issue",
+          issue_id: "default_dashboard_plugin_conflict",
+          severity: "warning",
+          learn_more_url: "https://github.com/thomasloven/hass-browser_mod#how-do-i-cleanup-after-removing-default-dashboard-plugin",
+        });
       }
 
       // Kiosk Mode built into Home Assistant since 2026.1
@@ -149,7 +183,7 @@ export const AutoSettingsMixin = (SuperClass) => {
       }
 
       // Sidebar title
-      if (settings.sidebarTitle) {
+      if (settings.sidebarTitle !== undefined && typeof settings.sidebarTitle === "string" && settings.sidebarTitle !== "" && settings.sidebarTitle !== '{}') {
         (async () => {
           if (this._sidebarTitleSubscription) {
             this._sidebarTitleSubscription();
@@ -162,12 +196,15 @@ export const AutoSettingsMixin = (SuperClass) => {
               variables: { browser_id: this.browserID, browser_entities: this.browserEntities },
             });
         })();
+      } else if (this._sidebarTitleSubscription) {
+        this._sidebarTitleSubscription();
+        this._sidebarTitleSubscription = undefined;
       }
 
       // Hide header
 
       // Favicon template
-      if (settings.faviconTemplate !== undefined) {
+      if (settings.faviconTemplate !== undefined && typeof settings.faviconTemplate === "string" && settings.faviconTemplate !== "" && settings.faviconTemplate !== '{}') {
         (async () => {
           if (this._faviconTemplateSubscription) {
             this._faviconTemplateSubscription();
@@ -180,10 +217,13 @@ export const AutoSettingsMixin = (SuperClass) => {
               variables: { browser_id: this.browserID, browser_entities: this.browserEntities },
             });
         })();
+      } else if (this._faviconTemplateSubscription) {
+        this._faviconTemplateSubscription();
+        this._faviconTemplateSubscription = undefined;
       }
 
       // Title template
-      if (settings.titleTemplate !== undefined) {
+      if (settings.titleTemplate !== undefined && typeof settings.titleTemplate === "string" && settings.titleTemplate !== "" && settings.titleTemplate !== '{}') {
         (async () => {
           if (this._titleTemplateSubscription) {
             this._titleTemplateSubscription();
@@ -199,6 +239,9 @@ export const AutoSettingsMixin = (SuperClass) => {
               }
             );
         })();
+      } else if (this._titleTemplateSubscription) {
+        this._titleTemplateSubscription();
+        this._titleTemplateSubscription = undefined;
       }
 
       // OverlayIcon
@@ -260,26 +303,37 @@ export const AutoSettingsMixin = (SuperClass) => {
       } else {
         let steps = 0;
         let el = rootEl;
-        while (el && el.localName !== "ha-top-app-bar-fixed" && steps++ < 5) {
+        // header is either div.header when as dashboard or header element when as panel 
+        // either can be in shadow DOM of multiple elements, so loop through them up to 10 levels deep (including shadow Roots) to find it
+        while (el && (!el.querySelector(".header") && !el.shadowRoot?.querySelector(".header") && !el.shadowRoot?.querySelector("header")) && steps++ < 10) {
           await await_element(el, true);
-          const next =
-            el.querySelector("ha-top-app-bar-fixed") ??
-            el.firstElementChild ??
-            el.shadowRoot;
-          el = next;
+          el = el.shadowRoot ? el.shadowRoot.firstElementChild : el.firstElementChild;
+          // uix or card-mod can add their style element so skip to next sibling
+          if (el && el.localName && ["uix-node", "card-mod"].includes(el.localName)) {
+            el = el.nextElementSibling;
+          }
         }
-        if (el?.localName !== "ha-top-app-bar-fixed") return false;
+        // bail if we can't find header after going through 10 levels of shadow DOM 
+        if (!el?.querySelector(".header") && !el?.shadowRoot?.querySelector(".header") && !el?.shadowRoot?.querySelector("header")) return false;
 
-        header = el.shadowRoot.querySelector("header");
-        menuButton = el.querySelector("ha-menu-button");
+        // header will be div.header or header element in shadow DOM
+        header = el.querySelector(".header") || el.shadowRoot?.querySelector(".header") || el.shadowRoot?.querySelector("header");
+        // menu button will be in light DOM of div.header or in shadow DOM of header element
+        menuButton =  el.querySelector("ha-menu-button") ||
+                      el.shadowRoot?.querySelector("ha-menu-button") ||
+                      el.shadowRoot?.querySelector("slot[name=navigationIcon]")?.assignedElements()?.[0];
       }
 
       if (header && this.settings.hideHeader === true) {
         rootEl.style.setProperty("--header-height", "0px");
         header.style.setProperty("display", "none");
         return true;
-      } else if (menuButton && this.settings.hideSidebar === true) {
-        menuButton.remove?.();
+      } else if (this.settings.hideSidebar === true) {
+        if (menuButton) {
+          menuButton.style.setProperty("display", "none");
+        } else {
+          console.warn("Browser Mod: Unable to find menu button to hide sidebar menu.");
+        }
         return true;
       }
       return false;
@@ -394,7 +448,7 @@ export const AutoSettingsMixin = (SuperClass) => {
                     left_button: "Edit with Browser Mod",
                     left_button_action: (data) => { 
                       localStorage.setItem(NO_SIDEBAR_EDIT_MODE_PROMPT_STORAGE_KEY, data.ignore_sidebar_edit_mode_prompt ? "true" : "false");
-                      this.browser_navigate('/browser-mod') 
+                      this.browser_navigate('/browser-mod-config') 
                     },
                     left_button_variant: "brand",
                     left_button_appearance: "accent",
@@ -415,6 +469,70 @@ export const AutoSettingsMixin = (SuperClass) => {
         this._removeLegacySidebarSettings = true;
         this._auto_settings_setup();
       }
+    }
+
+    async _watchProfileDashboardRow() {
+      const NOTICE_ID = "browser-mod-dashboard-notice";
+
+      const applyProfileOverride = async () => {
+        if (!window.location.pathname.startsWith("/profile")) return;
+
+        // Suppress the HA profile row whenever Browser Mod has any defaultPanel
+        // setting (global/browser/user), because BM now owns effective default
+        // dashboard selection and global has highest priority.
+        const hasManagedDefaultPanel =
+          (this.global_settings?.defaultPanel != null &&
+            this.global_settings?.defaultPanel !== "") ||
+          (this.user_settings?.defaultPanel != null &&
+            this.user_settings?.defaultPanel !== "") ||
+          (this.browser_settings?.defaultPanel != null &&
+            this.browser_settings?.defaultPanel !== "");
+
+        // Try to find ha-pick-dashboard-row.  The path covers both the
+        // flat (older HA) and tabbed (newer HA) profile page structures.
+        // selectTree returns null on timeout instead of throwing.
+        let dashboardRow = undefined;
+        let cnt = 0;
+        while (!dashboardRow && cnt++ < 10) {
+          dashboardRow = await selectTree(
+            document.body,
+            "home-assistant $ home-assistant-main $ ha-drawer partial-panel-resolver ha-profile-section-general $ ha-pick-dashboard-row"
+          );
+          if (!dashboardRow) await new Promise((r) => setTimeout(r, 1000));
+        }
+
+        if (!dashboardRow) return;
+
+        dashboardRow.updateComplete.then(() => {
+          const settingsRow = dashboardRow.shadowRoot?.querySelector("ha-settings-row");
+          if (settingsRow) {
+            const pickText = settingsRow.querySelector(`[slot="description"]:not(.${NOTICE_ID})`);
+            const dashboardSelect = settingsRow.querySelector("ha-select");
+            const noticeText = settingsRow.querySelector(`[slot="description"].${NOTICE_ID}`);
+            if (!noticeText) {
+              const notice = document.createElement("span");
+              notice.classList.add(NOTICE_ID);
+              notice.slot = "description";
+              notice.textContent = "Default dashboard for this Browser is managed by Browser Mod.";
+              settingsRow.appendChild(notice);
+            }
+            if (this.settings.defaultPanel) {
+              if (pickText) pickText.style.display = "none";
+              if (noticeText) noticeText.style.display = "";
+              if (dashboardSelect) dashboardSelect.disabled = true;
+            } else {
+              if (pickText) pickText.style.display = "";
+              if (noticeText) noticeText.style.display = "none";
+              if (dashboardSelect) dashboardSelect.disabled = false;
+            }
+          }
+        });
+      };
+      this.addEventListener("browser-mod-config-update", applyProfileOverride);
+      this.addEventListener("browser-mod-user-ready", applyProfileOverride);
+      window.addEventListener("location-changed", applyProfileOverride);
+      window.addEventListener("popstate", applyProfileOverride);
+      applyProfileOverride();
     }
 
     async _updateSidebarPanels() {

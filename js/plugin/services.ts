@@ -27,9 +27,9 @@ export const ServicesMixin = (SuperClass) => {
         });
       }
 
-      document.body.addEventListener("ll-custom", (ev: CustomEvent) => {
-        if (ev.detail.browser_mod) {
-          this._service_action(ev.detail.browser_mod);
+      document.body.addEventListener("ll-custom", (e: CustomEvent) => {
+        if (e.detail.browser_mod) {
+          this._service_action(e.detail.browser_mod);
         }
       });
     }
@@ -186,6 +186,14 @@ export const ServicesMixin = (SuperClass) => {
 
         case "refresh":
           {
+            if (data.local_storage_items && Array.isArray(data.local_storage_items)) {
+              data.local_storage_items.forEach((entry) => {
+                const key = typeof entry === "string" ? entry : entry?.item;
+                if (key && typeof key === "string") {
+                  window.localStorage.removeItem(key.trim());
+                }
+              });
+            }
             if (window.caches) {
               let cacheDeletePromises = [];
               const cacheNames = await window.caches.keys();

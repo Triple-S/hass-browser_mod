@@ -1,33 +1,15 @@
 import { LitElement, html, css } from "lit";
-import { property, state } from "lit/decorators.js";
-import { frontendSettingsAdaptiveDialogStyle } from "../helpers";
+import { property } from "lit/decorators.js";
+import { frontendSettingsAdaptiveDialogStyle, lookupBrowserEntity } from "../helpers";
 
 class BrowserModRegisteredBrowsersCard extends LitElement {
   @property() hass;
 
-  @property() _entity_registry?: any[];
+  @property({type: Array}) entityRegistry?: any[];
 
   firstUpdated() {
     window.browser_mod.addEventListener("browser-mod-config-update", () =>
       this.requestUpdate()
-    );
-    this._fetch_entity_registry();
-  }
-
-  async _fetch_entity_registry() {
-    if (this._entity_registry) return;
-
-    this._entity_registry = await this.hass.callWS({
-      type: "config/device_registry/list",
-    });
-  }
-
-  _find_entity(browserID) {
-    if (!this._entity_registry) return undefined;
-    return this._entity_registry.find(
-      (v) =>
-        JSON.stringify(v?.identifiers?.[0]) ===
-        JSON.stringify(["browser_mod", browserID])
     );
   }
 
@@ -105,7 +87,7 @@ class BrowserModRegisteredBrowsersCard extends LitElement {
     return html`
       <ha-card header="Registered Browsers" outlined>
         <div class="card-content">
-          <ha-md-list-item>
+          <ha-row-item>
             <span slot="headline">Auto-register</span>
             <span slot="supporting-text">
               Automatically register all new Browsers
@@ -116,8 +98,8 @@ class BrowserModRegisteredBrowsersCard extends LitElement {
               true}
               @change=${this.toggle_auto_register}
             ></ha-switch>
-          </ha-md-list-item>
-          <ha-md-list-item>
+          </ha-row-item>
+          <ha-row-item class="lock-register">
             <span slot="headline">Lock register</span>
             <span slot="supporting-text">
               Disable registering or unregistering of all Browsers
@@ -128,14 +110,14 @@ class BrowserModRegisteredBrowsersCard extends LitElement {
               true}
               @change=${this.toggle_lock_register}
             ></ha-switch>
-          </ha-md-list-item>
+          </ha-row-item>
 
           ${Object.keys(window.browser_mod.browsers).map((d) => {
             const browser = window.browser_mod.browsers[d];
-            const device = this._find_entity(d);
-            return html` <ha-md-list-item>
+            const device = lookupBrowserEntity(this.entityRegistry, d);
+            return html` <ha-row-item>
               <span slot="headline">
-                ${d} ${device?.name_by_user ? `(${device.name_by_user})` : ""}
+                ${device?.name_by_user ? `${device.name_by_user} (${d})` : `${d}`}
               </span>
               <span slot="supporting-text">
                 Last connected:
@@ -164,7 +146,7 @@ class BrowserModRegisteredBrowsersCard extends LitElement {
               <ha-icon-button slot="end" .browserID=${d} @click=${this.unregister_browser}>
                 <ha-icon .icon=${"mdi:delete"}></ha-icon>
               </ha-icon-button>
-            </ha-md-list-item>`;
+            </ha-row-item>`;
           })}
         </div>
         ${window.browser_mod.browsers["CAST"] === undefined
@@ -190,7 +172,11 @@ class BrowserModRegisteredBrowsersCard extends LitElement {
         color: var(--primary-text-color);
       }
       ha-card .card-content {
-        --ha-md-list-item-gap: var(--ha-space-2);
+        --ha-row-item-gap: var(--ha-space-2);
+        --ha-row-item-padding-block: var(--ha-space-1);
+      }
+      .lock-register {
+        margin-bottom: var(--ha-space-4);
       }
     `;
   }

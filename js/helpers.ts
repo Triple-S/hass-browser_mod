@@ -2,6 +2,8 @@ import { Unpromise } from "@watchable/unpromise";
 
 const TIMEOUT_ERROR = "SELECTTREE-TIMEOUT";
 
+export const BROWSER_MOD_CLOSE_ANCHOR = "browser-mod-close-anchor";
+
 export async function await_element(el, hard = false) {
   if (el.localName?.includes("-"))
     await customElements.whenDefined(el.localName);
@@ -160,7 +162,7 @@ export const loadHuiCardPicker = async () => {
 };
 
 // Loads in ha-config-dashboard which is used to copy styling
-// Also provides ha-md-list-item
+// ha-row-item is used in sidebar menu so will be available without loading any other components
 export const loadConfigDashboard = async () => {
   await customElements.whenDefined("partial-panel-resolver");
   const ppResolver = document.createElement("partial-panel-resolver");
@@ -174,12 +176,10 @@ export const loadConfigDashboard = async () => {
   await customElements.whenDefined("ha-panel-config");
   const configRouter: any = document.createElement("ha-panel-config");
   await configRouter?.routerOptions?.routes?.dashboard?.load?.(); // Load ha-config-dashboard
-  await configRouter?.routerOptions?.routes?.network?.load?.(); // Load ha-md-list-item
   await customElements.whenDefined("ha-config-dashboard");
 };
 
 export const loadDeveloperToolsTemplate = async () => {
-  await customElements.whenDefined("partial-panel-resolver");
   await customElements.whenDefined("partial-panel-resolver");
   const ppResolver = document.createElement("partial-panel-resolver");
   const routes = (ppResolver as any)._getRoutes([
@@ -195,6 +195,7 @@ export const loadDeveloperToolsTemplate = async () => {
 };
 
 export const loadHaDialog = async () => {
+  await customElements.whenDefined("ha-panel-lovelace");
   if (customElements.get("ha-dialog")) return;
   const haEl = await hass_base_el();
   if (!haEl) return;
@@ -230,7 +231,7 @@ export function runOnce(restart = false) {
   return function (target, propertyKey, descriptor) {
     const fn = descriptor.value;
     let running = undefined;
-    const newfn = function (...rest) {
+    const newfn = function (this: any, ...rest) {
       if (restart && running === false) running = true;
       if (running !== undefined) return;
       running = false;
@@ -253,6 +254,46 @@ export async function waitRepeat(fn, times, delay) {
     await fn();
     await new Promise((r) => setTimeout(r, delay));
   }
+}
+
+const IFRAME_TYPE = "iframe";
+
+function isIframeType(value: unknown): boolean {
+  return typeof value === "string" && value.toLowerCase() === IFRAME_TYPE;
+}
+
+export function popupContentContainsIframe(content: unknown): boolean {
+  if (content == null || content === false) return false;
+  if (content instanceof HTMLElement) {
+    if (isIframeType(content.tagName)) {
+      return true;
+    }
+    for (const child of content.children) {
+      if (popupContentContainsIframe(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (typeof content === "string") {
+    return /<iframe[\s>]/i.test(content);
+  }
+  if (Array.isArray(content)) {
+    return content.some((item) => popupContentContainsIframe(item));
+  }
+  if (typeof content === "object" && !Array.isArray(content)) {
+    const objectContent = content as Record<string, unknown>;
+    if (isIframeType(objectContent.type)) {
+      return true;
+    }
+    for (const key of Object.keys(objectContent)) {
+      if (key === "type") continue;
+      if (popupContentContainsIframe(objectContent[key])) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 export function blankVideoUrl() {
@@ -341,3 +382,12 @@ export const frontendSettingsAdaptiveDialogStyle =
     );
     --ha-bottom-sheet-max-height: var(--ha-bottom-sheet-height);
   }`;
+
+export function lookupBrowserEntity(entityRegistry: any[], browserID: string) {
+    if (!entityRegistry) return undefined;
+    return entityRegistry.find(
+      (v) =>
+        JSON.stringify(v?.identifiers?.[0]) ===
+        JSON.stringify(["browser_mod", browserID])
+    );
+  }
